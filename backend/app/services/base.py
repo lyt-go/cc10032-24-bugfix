@@ -64,6 +64,11 @@ class BaseModuleService:
         rows = store.rows(self.MODULE)
         entry = {"id": max((int(row.get("id", 0)) for row in rows), default=0) + 1}
         entry.update({field: values.get(field) for field in self.LIST_FIELDS})
+        # 保留模块扩展字段（例如盘点版本、接替分区、采用范围），通用列表字段之外
+        # 的领域信息不能在登记时被静默丢弃。受保护的状态字段仍由状态机初始化。
+        for key, value in values.items():
+            if key not in ("id", "status", "pending", "abnormal"):
+                entry[key] = value
         entry["status"] = self.STATUS_ORDER[0]
         entry["pending"] = True
         entry["abnormal"] = False

@@ -8,6 +8,7 @@ const router = createRouter({
   routes: [
     { path: '/', name: 'overview', component: Overview },
     { path: '/:moduleKey', name: 'module', component: WorkbenchView, props: true },
+    { path: '/:moduleKey/:entryId(\\d+)', name: 'module-entry', component: WorkbenchView, props: true },
   ],
 })
 

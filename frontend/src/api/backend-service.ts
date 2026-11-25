@@ -59,3 +59,21 @@ export async function loadOverview(): Promise<OverviewResult> {
   if (!response.ok) throw new Error('运营概览读取失败')
   return await response.json()
 }
+
+export async function compactionRequest<T = Record<string, unknown>>(
+  path: string,
+  payload?: Record<string, unknown>,
+  method = payload === undefined ? 'GET' : 'POST',
+): Promise<T> {
+  const response = await request(`/api/compaction${path}`, {
+    method,
+    body: payload === undefined ? undefined : JSON.stringify(payload),
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error((data as { message?: string; detail?: string }).message
+      ?? (data as { detail?: string }).detail
+      ?? '压缩盘点接口请求失败')
+  }
+  return data as T
+}

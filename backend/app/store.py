@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import hashlib
+import threading
 import time
 from typing import Any
 
@@ -133,6 +134,72 @@ class Store:
         self._lineage_graph: dict[str, list[dict[str, Any]]] = {}
         # 归档清单（cold_archive → retention 共享）
         self._archive_manifest: list[dict[str, Any]] = []
+        # 分区盘点与接替关系（partition_scale → compaction 共享）
+        self._partition_inventories: list[dict[str, Any]] = []
+        self._partition_replacements: list[dict[str, Any]] = []
+        self._compaction_prechecks: dict[str, dict[str, Any]] = {}
+        # 盘点/领取的进程内锁，保证预检后的并发领取与执行状态一致。
+        self.inventory_lock = threading.RLock()
+
+    # ---------- 分区盘点 ----------
+    def register_partition_inventory(self, record: dict[str, Any]) -> dict[str, Any]:
+        """登记一版分区盘点；重复登记同一对象时按内容更新。"""
+        with self.inventory_lock:
+            inventory_id = record.get("inventory_id") or record.get("盘点编号")
+            if inventory_id is not None:
+                for index, item in enumerate(self._partition_inventories):
+                    if item is record:
+                        return item
+                    if (item.get("inventory_id") or item.get("盘点编号")) == inventory_id:
+                        item.update(record)
+                        return item
+            self._partition_inventories.append(record)
+            return record
+
+    # 常见命名别名，方便不同测试/脚本的数据构造习惯。
+    save_partition_inventory = register_partition_inventory
+    add_partition_inventory = register_partition_inventory
+    upsert_partition_inventory = register_partition_inventory
+
+    def add_inventory(self, record: dict[str, Any]) -> dict[str, Any]:
+        return self.register_partition_inventory(record)
+
+    def save_inventory(self, record: dict[str, Any]) -> dict[str, Any]:
+        return self.register_partition_inventory(record)
+
+    def list_partition_inventories(self, table_name: str | None = None) -> list[dict[str, Any]]:
+        with self.inventory_lock:
+            rows = list(self._partition_inventories)
+        if table_name is None:
+            return rows
+        return [
+            row for row in rows
+            if str(row.get("table") or row.get("目标表") or row.get("表名") or "") == str(table_name)
+        ]
+
+    def replace_partition_mapping(self, record: dict[str, Any]) -> dict[str, Any]:
+        """登记原分区到接替分区的映射。"""
+        with self.inventory_lock:
+            self._partition_replacements.append(record)
+            return record
+
+    def list_partition_replacements(self, table_name: str | None = None) -> list[dict[str, Any]]:
+        with self.inventory_lock:
+            rows = list(self._partition_replacements)
+        if table_name is None:
+            return rows
+        return [
+            row for row in rows
+            if str(row.get("table") or row.get("目标表") or row.get("表名") or "") == str(table_name)
+        ]
+
+    def save_compaction_precheck(self, token: str, record: dict[str, Any]) -> None:
+        with self.inventory_lock:
+            self._compaction_prechecks[token] = record
+
+    def get_compaction_precheck(self, token: str) -> dict[str, Any] | None:
+        with self.inventory_lock:
+            return self._compaction_prechecks.get(token)
 
     # ---------- 基础 CRUD ----------
     def module_names(self) -> list[str]:

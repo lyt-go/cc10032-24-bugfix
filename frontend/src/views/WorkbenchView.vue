@@ -28,6 +28,13 @@
       </span>
     </p>
 
+    <CompactionInventoryPanel
+      v-if="meta.key === 'compaction'"
+      data-testid="compaction-inventory-panel"
+      @changed="reload"
+      @open-detail="openDetail"
+    />
+
     <form class="filter-bar" @submit.prevent="reload">
       <label v-for="field in filterFields" :key="field" class="filter-item">
         <span>{{ field }}</span>
@@ -46,10 +53,26 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="row in rows" :key="String(row.id)" :data-testid="`row-${row.id}`" :data-status="String(row.status)">
+        <tr
+          v-for="row in rows"
+          :key="String(row.id)"
+          :data-testid="`row-${row.id}`"
+          :data-status="String(row.status)"
+          :class="{ 'clickable-row': meta.key === 'compaction' }"
+          @click="meta.key === 'compaction' && openDetail(Number(row.id))"
+        >
           <td v-for="column in meta.fields" :key="column">{{ row[column] ?? '—' }}</td>
           <td>{{ row.status }}</td>
-          <td class="row-actions">
+          <td class="row-actions" @click.stop>
+            <button
+              v-if="meta.key === 'compaction'"
+              class="link"
+              type="button"
+              :data-testid="`detail-${row.id}`"
+              @click="openDetail(Number(row.id))"
+            >
+              详情
+            </button>
             <button
               v-for="action in meta.actions"
               :key="action"
@@ -69,6 +92,13 @@
         </tr>
       </tbody>
     </table>
+
+    <CompactionDetailModal
+      v-if="meta.key === 'compaction' && detailId !== null"
+      :entry-id="detailId"
+      @close="closeDetail"
+      @changed="reload"
+    />
 
     <div v-if="showCreate" class="modal-backdrop" data-testid="create-modal">
       <form class="modal" @submit.prevent="submitCreate">
@@ -94,7 +124,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 
 import {
   createEntry,
@@ -104,12 +135,16 @@ import {
   runAction as applyAction,
 } from '@/api/backend-service'
 import type { EntryRow } from '@/data/types'
+import CompactionInventoryPanel from './CompactionInventoryPanel.vue'
+import CompactionDetailModal from './CompactionDetailModal.vue'
 
-const props = defineProps<{ moduleKey: string }>()
+const props = defineProps<{ moduleKey: string; entryId?: string }>()
+const router = useRouter()
 const meta = moduleMeta(props.moduleKey)
 const rows = ref<EntryRow[]>([])
 const total = ref(0)
 const errorMessage = ref('')
+const detailId = ref<number | null>(props.entryId ? Number(props.entryId) : null)
 const filters = ref<Record<string, string>>({})
 const filterFields = meta.fields.slice(0, 3)
 const showCreate = ref(false)
@@ -129,6 +164,16 @@ const statusSummary = computed(() =>
     count: rows.value.filter((row) => String(row.status) === status).length,
   })),
 )
+
+function openDetail(id: number) {
+  detailId.value = id
+  void router.push(`/${meta.key}/${id}`)
+}
+
+function closeDetail() {
+  detailId.value = null
+  void router.push(`/${meta.key}`)
+}
 
 function resetFilters() {
   filters.value = {}
@@ -187,5 +232,15 @@ async function reload() {
   }
 }
 
+watch(() => [props.moduleKey, props.entryId], () => {
+  detailId.value = props.entryId ? Number(props.entryId) : null
+  void reload()
+})
+
 onMounted(reload)
 </script>
+
+<style scoped>
+.clickable-row { cursor: pointer; }
+.clickable-row:hover { background: #f8fafc; }
+</style>
